@@ -1,2 +1,11 @@
-# diamond-miner
-Python package designed to extract Coulomb diamond information from data measurements.
+# Diamond Miner
+
+Extract Coulomb diamond information from a provided measurement dataset.
+
+## Usage
+
+Please see `demo.ipynb` for usage.
+
+## Results
+
+![alt text](photos/results.svg)
