@@ -2,11 +2,23 @@
 
 Extract Coulomb diamond information from a provided measurement dataset.
 
-## Usage
+## Installation
+
+To install this to your already existing environment you can run the following commands in this directory,
+
+```shell
+(ENV) user ./diamondminer $ python setup.py bdist_wheel sdist
+```
+followed by installing it locally,
+```shell
+(ENV) user diamondminer $ python -m pip install . 
+```
+
+### Usage
 
 Please see `demo.ipynb` for usage.
 
-## Results
+### Results
 
 ![alt text](photos/results.svg)
 

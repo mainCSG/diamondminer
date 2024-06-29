@@ -1,10 +1,8 @@
 from numpy import ndarray
 import numpy as np
-from typing import Union
 import cv2
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-
 from dataclasses import dataclass
 
 @dataclass
