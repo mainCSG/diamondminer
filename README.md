@@ -11,7 +11,7 @@ To install this to your already existing environment you can run the following c
 ```
 followed by installing it locally,
 ```shell
-(ENV) user diamondminer $ python -m pip install . 
+(ENV) user ./diamondminer $ python -m pip install . 
 ```
 
 ### Usage
