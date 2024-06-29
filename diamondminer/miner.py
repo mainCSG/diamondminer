@@ -42,7 +42,7 @@ class CoulombDiamond:
         return self.total_capacitance() / (8 * self.eps0 * self.epsR)
 
     def print_summary(self):
-        print("Summary (self.name):")
+        print(f"Summary ({self.name}):")
         print("====================")
         print(f"Left Vertex: {self.left_vertex}")
         print(f"Top Vertex: {self.top_vertex}")
