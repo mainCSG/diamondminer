@@ -4,14 +4,17 @@ Extract Coulomb diamond information from a provided measurement dataset.
 
 ## Installation
 
-To install this to your already existing environment you can run the following commands in this directory,
-
+To install this package you must first activate your environment (example below if you are using conda),
 ```shell
-(ENV) user ./diamondminer $ python setup.py bdist_wheel sdist
+conda activate ENV_NAME
 ```
-followed by installing it locally,
+Then you can build the package using `setup.py` which will generate some folders in your repository,
 ```shell
-(ENV) user ./diamondminer $ python -m pip install . 
+python setup.py bdist_wheel sdist
+```
+Then using `pip` to install the package based on the build folders created from the command above,
+```shell
+python -m pip install . 
 ```
 
 ## Usage
