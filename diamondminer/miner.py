@@ -24,6 +24,21 @@ class CoulombDiamond:
     
     def height(self) -> float:
         return np.abs(self.top_vertex[1] - self.bottom_vertex[1])
+    
+    def beta(self) -> float:
+        # positive slopes (drain lever arm)
+        beta1 = (self.top_vertex[1] - self.left_vertex[1]) / (self.top_vertex[0] - self.left_vertex[0])
+        beta2 = (self.bottom_vertex[1] - self.right_vertex[1]) / (self.bottom_vertex[0] - self.right_vertex[0])
+        return 0.5 * (beta1 + beta2)
+    
+    def gamma(self) -> float:
+        # positive slopes (source lever arm)
+        gamma1 = -1 * (self.top_vertex[1] - self.right_vertex[1]) / (self.top_vertex[0] - self.right_vertex[0])
+        gamma2 = -1 * (self.bottom_vertex[1] - self.left_vertex[1]) / (self.bottom_vertex[0] - self.left_vertex[0])
+        return 0.5 * (gamma1 + gamma2)
+    
+    def alpha(self) -> float:
+        return (self.beta()**-1 + self.gamma()**-1)**-1
 
     def lever_arm(self) -> float:
         return self.charging_voltage() / self.addition_voltage() 
@@ -37,6 +52,12 @@ class CoulombDiamond:
     def total_capacitance(self) -> float:
         return self.e / self.charging_voltage()
     
+    def source_capacitance(self) -> float:
+        return self.gate_capacitance() / self.gamma()
+
+    def drain_capacitance(self) -> float:
+        return self.gate_capacitance() * (1- self.beta()) / self.beta() 
+    
     def gate_capacitance(self) -> float:
         return self.e / self.addition_voltage()
     
@@ -45,22 +66,39 @@ class CoulombDiamond:
 
     def print_summary(self):
         print(f"Summary ({self.name}):")
-        print("====================")
+        print("===================")
+        print("\n")
+
+        print("Constants")
+        print("---------")
+        print(f"Elementary Charge (e): {self.e:.5e} C")
+        print(f"Permittivity of Free Space (\u03F50): {self.eps0:.5e} F/m")
+        print(f"Relative Permittivity (\u03F5R): {self.epsR:.5f}")
+        print("---------")
+        print("\n")
+
+        print("Geometry")
+        print("---------")
         print(f"Left Vertex: {self.left_vertex}")
         print(f"Top Vertex: {self.top_vertex}")
         print(f"Right Vertex: {self.right_vertex}")
         print(f"Bottom Vertex: {self.bottom_vertex}")
-        print(f"Elementary Charge (e): {self.e:.5e} C")
-        print(f"Permittivity of Free Space (\u03F50): {self.eps0:.5e} F/m")
-        print(f"Relative Permittivity (\u03F5R): {self.epsR:.5f}")
         print(f"Width: {self.width():.5f} V")
         print(f"Height: {self.height():.5f} V")
+        print("---------")
+        print("\n")
+        
+        print("Dot Properties")
+        print("--------------")
         print(f"Lever Arm (\u03B1): {self.lever_arm():.5f} eV/V")
         print(f"Addition Voltage: {self.addition_voltage():.5f} V")
         print(f"Charging Voltage: {self.charging_voltage():.5f} V")
-        print(f"Total Capacitance: {self.total_capacitance() * 1e18:.5f} aF")
         print(f"Gate Capacitance: {self.gate_capacitance() * 1e18:.5f} aF")
+        print(f"Source Capacitance: {self.source_capacitance() * 1e18:.5f} aF")
+        print(f"Drain Capacitance: {self.drain_capacitance() * 1e18:.5f} aF")
+        print(f"Total Capacitance: {self.total_capacitance() * 1e18:.5f} aF")
         print(f"Dot Size: {self.dot_size() * 1e9:.5f} nm")
+        print("--------------")
         print("\n")
 
     def plot(self, ax):
@@ -70,7 +108,6 @@ class CoulombDiamond:
         
         # Calculate the center of the diamond for the label
         center_x = (self.left_vertex[0] + self.right_vertex[0]) / 2
-        center_y = (self.top_vertex[1] + self.bottom_vertex[1]) / 2
         ax.text(center_x, 0, self.name, color='blue', ha='center', va='center', fontsize=10, weight='bold')
 
 class Miner:
@@ -290,6 +327,8 @@ class Miner:
             'charging_voltage',
             'total_capacitance',
             'gate_capacitance',
+            'source_capacitance',
+            'drain_capacitance',
             'dot_size'
         ]
         methods_print = {
@@ -298,6 +337,8 @@ class Miner:
             'charging_voltage': lambda mu, std: f"Average Charging Voltage: {mu:.5f} (V) \u00b1 {std:.5f} (V)",
             'total_capacitance': lambda mu, std: f"Average Total Capacitance: {1e18 * mu:.5f} (aF) \u00b1 {1e18 * std:.5f} (aF)",
             'gate_capacitance': lambda mu, std: f"Average Gate Capacitance: {1e18 * mu:.5f} (aF) \u00b1 {1e18 * std:.5f} (aF)",
+            'source_capacitance': lambda mu, std: f"Average Source Capacitance: {1e18 * mu:.5f} (aF) \u00b1 {1e18 * std:.5f} (aF)",
+            'drain_capacitance': lambda mu, std: f"Average Drain Capacitance: {1e18 * mu:.5f} (aF) \u00b1 {1e18 * std:.5f} (aF)",
             'dot_size': lambda mu, std: f"Average Dot Size: {1e9 * mu:.5f} (nm) \u00b1 {1e9 * std:.5f} (nm)",
         }
 
@@ -395,11 +436,6 @@ class Miner:
         else:
             opx = self.x_intercept(ox1, oy1, ox2, oy2, y_lower)
 
-        # Calculate the distance between the midpoints of the two lines
-        # midpoint1 = ((x1 + x2) / 2, (y1 + y2) / 2)
-        # midpoint2 = ((ox1 + ox2) / 2, (oy1 + oy2) / 2)
-
-        # distance_difference = np.abs(midpoint1[0] - midpoint2[0])
         distance_difference = np.abs(px - opx)
 
         # Calculate the slopes of the two lines
