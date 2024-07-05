@@ -48,6 +48,16 @@ Dot Size: 147.44178 nm
 ... and more ...
 ```
 
+And the statistics can also be calculated as,
+```text
+Average Lever Arm (α) : 0.02087 (eV/V) ± 0.00047 (eV/V)
+Average Addition Voltage: 0.07004 (V) ± 0.00097 (V)
+Average Charging Voltage: 0.00145 (V) ± 0.00002 (V)
+Average Total Capacitance: 110.91059 (aF) ± 1.70902 (aF)
+Average Gate Capacitance: 2.29876 (aF) ± 0.03264 (aF)
+Average Dot Size: 133.82845 (nm) ± 2.06216 (nm)
+```
+
 ### Charge Temperature
 
 ![alt text](photos/temperature.svg)

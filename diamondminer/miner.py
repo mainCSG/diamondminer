@@ -208,6 +208,7 @@ class Miner:
                 )
             )
 
+        self.diamonds = detected_coulomb_diamonds
         return detected_coulomb_diamonds
 
     def estimate_temperatures(
@@ -263,6 +264,40 @@ class Miner:
         kB = 8.6173303e-5 # eV / K
         return a + b * (np.cosh(alpha * (V0 - V) / (2 * kB * Te)))**-2
 
+    def get_statistics(self, diamonds: Optional[list[CoulombDiamond]] = None) -> dict:
+        if diamonds is None:
+            diamonds = self.diamonds
+
+        methods = [
+            'lever_arm',
+            'addition_voltage',
+            'charging_voltage',
+            'total_capacitance',
+            'gate_capacitance',
+            'dot_size'
+        ]
+        methods_print = {
+            'lever_arm': lambda mu, std: f"Average Lever Arm (\u03B1) : {mu:.5f} (eV/V) \u00b1 {std:.5f} (eV/V)",
+            'addition_voltage' : lambda mu, std: f"Average Addition Voltage: {mu:.5f} (V) \u00b1 {std:.5f} (V)",
+            'charging_voltage': lambda mu, std: f"Average Charging Voltage: {mu:.5f} (V) \u00b1 {std:.5f} (V)",
+            'total_capacitance': lambda mu, std: f"Average Total Capacitance: {1e18 * mu:.5f} (aF) \u00b1 {1e18 * std:.5f} (aF)",
+            'gate_capacitance': lambda mu, std: f"Average Gate Capacitance: {1e18 * mu:.5f} (aF) \u00b1 {1e18 * std:.5f} (aF)",
+            'dot_size': lambda mu, std: f"Average Dot Size: {1e9 * mu:.5f} (nm) \u00b1 {1e9 * std:.5f} (nm)",
+        }
+
+
+        results = {}
+
+        for method in methods:
+            results[method] = sp.stats.norm.fit([getattr(diamond, method)() for diamond in diamonds])
+        
+        for method, (mu, std) in results.items():
+            print(
+                methods_print[method](mu, std/len(diamonds))
+            )
+
+        return results
+    
     def extract_edges(self, image: ndarray) -> ndarray:
 
         # Apply Gaussian blur to smooth the image and reduce noise
