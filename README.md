@@ -27,7 +27,7 @@ Below are two results that can be reproduced in the `demo.ipynb`: (1) Coulomb di
 
 ### Coulomb Diamonds
 
-![alt text](photos/diamonds.svg)
+![alt text](photos/demo_data_1/diamonds.svg)
 
 ```text
 Summary (#0):
@@ -63,4 +63,4 @@ Average Dot Size: 133.82845 (nm) ± 2.06216 (nm)
 
 ### Charge Temperature
 
-![alt text](photos/temperature.svg)
+![alt text](photos/demo_data_1/temperature.svg)
