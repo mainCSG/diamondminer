@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="DiamondMiner",
-    version="0.0.1",
+    version="0.0.2",
     url="https://github.com/mainCSG/diamondminer",
     packages=setuptools.find_packages(),
     install_requires=[
@@ -11,6 +11,7 @@ setuptools.setup(
         "numpy",
         "pandas",
         "PyQt5",
+        "scipy"
     ],
     author="Andrija Paurevic",
     author_email="apaurevic@uwaterloo.ca",

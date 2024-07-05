@@ -4,6 +4,8 @@ import cv2
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from dataclasses import dataclass
+import scipy as sp 
+from typing import Optional
 
 @dataclass
 class CoulombDiamond:
@@ -207,6 +209,59 @@ class Miner:
             )
 
         return detected_coulomb_diamonds
+
+    def estimate_temperatures(
+            self, 
+            diamonds: list[CoulombDiamond], 
+            ohmic_value: float,
+            axes: Optional[plt.Axes] = None) -> list[float]:
+        
+        temperatures = []
+        for i in range(len(diamonds)-1):
+            # Get estimated lever arm from neighbouring diamonds
+            left_diamond = diamonds[i]
+            right_diamond = diamonds[i+1]
+            left_Vg, left_Vsd = left_diamond.top_vertex
+            right_Vg, right_Vsd = right_diamond.top_vertex
+            average_lever_arm = (left_diamond.lever_arm() + right_diamond.lever_arm()) / 2
+            
+            # Filter out the coulomb oscillation between two diamonds
+            gate_mask = np.where((self.gate_data >= left_Vg) * (self.gate_data <= right_Vg))[0]
+            ohmic_index = (np.abs(self.ohmic_data - ohmic_value)).argmin()
+            P_data_filtered = self.gate_data[gate_mask]
+            ohmic_value = self.ohmic_data[ohmic_index]
+            oscillation = self.current_data[ohmic_index, gate_mask]
+
+            # Fit data to Coulomb peak theoretical formula
+            guess = [oscillation.min(), oscillation.max(), np.average(P_data_filtered), 1]
+            (a,b,V0,Te), coeffs_cov = sp.optimize.curve_fit(
+            lambda V, a, b, V0, Te: self.coulomb_peak(V, average_lever_arm, a, b, V0, Te), P_data_filtered, oscillation, p0=guess
+            )
+
+            # Plot results
+            if axes is not None:
+                Vs = np.linspace(P_data_filtered.min(), P_data_filtered.max(), 100)
+                axes.plot(P_data_filtered, oscillation, 'k.')
+                axes.plot(Vs, self.coulomb_peak(Vs, average_lever_arm, a, b, V0, Te),'k-')
+                axes.set_xlabel(r"Gate Voltage (V)")
+                axes.set_ylabel(r"Current (A)")
+
+            temperatures.append(Te)
+        temperatures = np.array(temperatures)
+        T_avg = np.average(temperatures)
+        T_stddev = np.std(temperatures)
+        if axes is not None:
+            axes.annotate(
+                rf'T = ${round(T_avg,3)}$ K $\pm\ {round(T_stddev/np.sqrt(len(temperatures)), 3)}$ K',
+                (0.35,0.9),
+                xycoords='axes fraction',
+                size=8
+                )
+        return temperatures
+
+    def coulomb_peak(self, V, alpha, a, b, V0, Te):
+        kB = 8.6173303e-5 # eV / K
+        return a + b * (np.cosh(alpha * (V0 - V) / (2 * kB * Te)))**-2
 
     def extract_edges(self, image: ndarray) -> ndarray:
 

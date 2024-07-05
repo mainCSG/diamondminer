@@ -1,6 +1,6 @@
 # Diamond Miner
 
-Extract Coulomb diamond information from a provided measurement dataset.
+Extract Coulomb diamond information from a provided measurement dataset. 
 
 ## Installation
 
@@ -14,13 +14,17 @@ followed by installing it locally,
 (ENV) user ./diamondminer $ python -m pip install . 
 ```
 
-### Usage
+## Usage
 
 Please see `demo.ipynb` for usage.
 
-### Results
+## Results
 
-![alt text](photos/results.svg)
+Below are two results that can be reproduced in the `demo.ipynb`: (1) Coulomb diamonds and estimated dot information, (2) Charge temperature information.
+
+### Coulomb Diamonds
+
+![alt text](photos/diamonds.svg)
 
 ```text
 Summary (#0):
@@ -43,3 +47,7 @@ Dot Size: 147.44178 nm
 
 ... and more ...
 ```
+
+### Charge Temperature
+
+![alt text](photos/temperature.svg)
