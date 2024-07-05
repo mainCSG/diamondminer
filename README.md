@@ -19,7 +19,7 @@ python -m pip install .
 
 ## Usage
 
-Please see `demo.ipynb` for usage.
+Please see `demo.ipynb` for usage. You can try it out on the `demo_data_(1/2).txt` prepared datasets.
 
 ## Results
 

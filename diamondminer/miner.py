@@ -85,7 +85,7 @@ class Miner:
         self.current_data = current_data
 
         self.current_data_height, self.current_data_width = self.current_data.shape
-
+        self.image_ratio = self.current_data_height / self.current_data_width
         self.gate_voltage_per_pixel = (self.gate_data[-1] - self.gate_data[0]) / self.current_data_width
         self.ohmic_voltage_per_pixel = (self.ohmic_data[-1] - self.ohmic_data[0]) / self.current_data_height
     
@@ -101,8 +101,16 @@ class Miner:
         mask = filtered_current_data < 1.1 * np.nanmax(filtered_current_data)
 
         new_data[mask] = 255
+        new_data = new_data.astype(np.uint8)
+
+        # Apply Gaussian blur to smooth the image and reduce noise
+        filtered_data = cv2.GaussianBlur(
+            new_data, 
+            (3,3), 
+            1
+        )
         
-        return new_data.astype(np.uint8)
+        return filtered_data
 
     def extract_diamonds(self, debug: bool = False) -> None:
 
@@ -140,7 +148,9 @@ class Miner:
 
                 if x1 != x2:
                     slope = (y2 - y1) / (x2 - x1)
-
+                    
+                    if np.abs(slope)/self.image_ratio < 1:
+                        continue
                     y_middle = self.current_data_height//2
                     y_upper = self.current_data_height
                     y_lower = 0
@@ -158,12 +168,18 @@ class Miner:
                     else:
                         line_dict[section]["negative"].append([px, py, x_intercept, y_middle])
 
-            if debug:
-                if section == "upper":
-                    color = 'blue'
-                else:
-                    color = "red"
-                self.plot_lines(image_lines, c=color)
+                    if debug:
+                        if section == "upper":
+                            color = 'blue'
+                        else:
+                            color = "red"
+
+                        if slope > 0:
+                            color = "dark" + color
+                        else:
+                            color = color
+
+                        plt.plot([px, x_intercept], [py, y_middle], c=color)
 
         upper_pos = sorted(line_dict['upper']['positive'], key = lambda x: x[2])
         upper_neg = sorted(line_dict['upper']['negative'], key = lambda x: x[2])
@@ -300,16 +316,9 @@ class Miner:
     
     def extract_edges(self, image: ndarray) -> ndarray:
 
-        # Apply Gaussian blur to smooth the image and reduce noise
-        blurred = cv2.GaussianBlur(
-            image, 
-            (3,3), 
-            1
-        )
-
         # Perform Canny edge detection
         edges = cv2.Canny(
-            blurred, 
+            image, 
             0, 
             0, 
             apertureSize=3
@@ -323,17 +332,17 @@ class Miner:
             edges, # Input edge image
             1, # Distance resolution in pixels
             np.pi/180, # Angle resolution in radians
-            threshold=10, # Min number of votes for valid line
-            minLineLength=20, # Min allowed length of line
-            maxLineGap=20 # Max allowed gap between line for joining them
+            threshold=15, # Min number of votes for valid line
+            minLineLength=10, # Min allowed length of line
+            maxLineGap=10 # Max allowed gap between line for joining them
             )
 
         # Filter out duplicate lines
-        filtered_lines = self.filter_duplicate_lines(lines, distance_threshold=5, angle_threshold=0.5)
+        lines = self.filter_duplicate_lines(lines, distance_threshold=self.current_data_width//10, angle_threshold=0.5)
 
-        return filtered_lines
+        return lines
 
-    def filter_duplicate_lines(self, lines, distance_threshold=10, angle_threshold=.1):
+    def filter_duplicate_lines(self, lines, distance_threshold=None, angle_threshold=None):
         if lines is None:
             return []
 
@@ -343,6 +352,12 @@ class Miner:
             keep_line = True
             for other_line in filtered_lines:
                 ox1, oy1, ox2, oy2 = other_line[0]
+                # Calculate the slopes of the two lines
+                slope1 = np.arctan2((y2 - y1), (x2 - x1))
+                slope2 = np.arctan2((oy2 - oy1), (ox2 - ox1))
+                if np.sign(slope1) != np.sign(slope2):
+                    # slopes are opposite, definitely not similar
+                    continue
                 if self.are_lines_similar(x1, y1, x2, y2, ox1, oy1, ox2, oy2, distance_threshold, angle_threshold):
                     keep_line = False
                     break
@@ -365,48 +380,35 @@ class Miner:
             return [int(x/z), int(y/z)]
 
     def are_lines_similar(self, x1, y1, x2, y2, ox1, oy1, ox2, oy2, distance_threshold, angle_threshold):
-        # Calculate the distance between the midpoints of the two lines
-        midpoint1 = ((x1 + x2) / 2, (y1 + y2) / 2)
-        midpoint2 = ((ox1 + ox2) / 2, (oy1 + oy2) / 2)
 
-        distance_difference = np.abs(midpoint1[0] - midpoint2[0])
+        y_middle = self.current_data_height//2
+        y_upper = self.current_data_height
+        y_lower = 0
+        
+        if y2 > y_middle:
+            px = self.x_intercept(x1, y1, x2, y2, y_upper)
+        else:
+            px = self.x_intercept(x1, y1, x2, y2, y_lower)
+
+        if oy2 > y_middle:
+            opx = self.x_intercept(ox1, oy1, ox2, oy2, y_upper)
+        else:
+            opx = self.x_intercept(ox1, oy1, ox2, oy2, y_lower)
+
+        # Calculate the distance between the midpoints of the two lines
+        # midpoint1 = ((x1 + x2) / 2, (y1 + y2) / 2)
+        # midpoint2 = ((ox1 + ox2) / 2, (oy1 + oy2) / 2)
+
+        # distance_difference = np.abs(midpoint1[0] - midpoint2[0])
+        distance_difference = np.abs(px - opx)
 
         # Calculate the slopes of the two lines
         slope1 = np.arctan2((y2 - y1), (x2 - x1))
         slope2 = np.arctan2((oy2 - oy1), (ox2 - ox1))
-        angle_difference = np.abs(slope1 - slope2)
+        angle_difference = np.abs(slope1 - slope2)%2*np.pi
 
         # Check if both distance and angle difference are below the thresholds
-        return distance_difference < distance_threshold and angle_difference < angle_threshold 
-      
-    def plot_lines(self, lines: list, c: str = 'blue'):
-
-        # Iterate over points
-        for points in lines:
-            # Extracted points nested in the list
-            x1,y1,x2,y2=points[0]
-
-            if x1 != x2:
-                slope = (y2 - y1) / (x2 - x1)
-
-                y_middle = self.current_data_height//2
-                y_upper = self.current_data_height
-                y_lower = 0
-                if y2 > y_middle:
-                    px = self.x_intercept(x1, y1, x2, y2, y_upper)
-                    py = y_upper
-                else:
-                    px = self.x_intercept(x1, y1, x2, y2, y_lower)
-                    py = y_lower
-
-                x_intercept = self.x_intercept(x1, y1, x2, y2, y_middle)
-
-                if slope > 0:
-                    color = "dark" + c
-                else:
-                    color = c
-
-                plt.plot([px, x_intercept], [py, y_middle], c=color)
+        return distance_difference < distance_threshold and angle_difference < angle_threshold
 
     def x_intercept(self, x1, y1, x2, y2, y_i):
         # Check if the line is vertical to avoid division by zero
