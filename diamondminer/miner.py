@@ -450,7 +450,8 @@ class Miner:
         # Check if the line is vertical to avoid division by zero
         if y2 == y1:
             raise ValueError("The line defined by the points is horizontal and does not intercept the x-axis.")
-        
+        if x1 == x2:
+            return int(x1)
         # Calculate the slope
         m = (y2 - y1) / (x2 - x1)
         # Calculate the x-intercept
