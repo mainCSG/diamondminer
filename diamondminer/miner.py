@@ -15,9 +15,10 @@ class CoulombDiamond:
     top_vertex: tuple
     right_vertex: tuple
     bottom_vertex: tuple
+    oxide_thickness: float = None # m
+    epsR: float = None # F/m
     e: float = 1.60217663e-19 # C
     eps0: float = 8.8541878128e-12 # F/m
-    epsR: float = 11.7 # Silicon
 
     def width(self) -> float:
         return np.abs(self.right_vertex[0] - self.left_vertex[0])
@@ -61,8 +62,22 @@ class CoulombDiamond:
     def gate_capacitance(self) -> float:
         return self.e / self.addition_voltage()
     
-    def dot_size(self) -> float:
-        return self.total_capacitance() / (8 * self.eps0 * self.epsR)
+    def dot_area(self) -> float:
+        # Assumes parallel plate capicitaor geometry
+        dot_area = self.oxide_thickness * self.total_capacitance() / (self.eps0 * self.epsR)
+        return dot_area
+
+    def dot_radius(self) -> float:
+        if self.oxide_thickness is None:
+            # Less accurate
+            if self.epsR is None:
+                return -1
+            #https://arxiv.org/pdf/1910.05841
+            return self.total_capacitance() / (8 * self.eps0 * self.epsR)
+        else:
+            #https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-018-05700-9/MediaObjects/41467_2018_5700_MOESM1_ESM.pdf
+            dot_radius = np.sqrt(self.dot_area() / np.pi)
+            return dot_radius
 
     def print_summary(self):
         print(f"Summary ({self.name}):")
@@ -73,7 +88,10 @@ class CoulombDiamond:
         print("---------")
         print(f"Elementary Charge (e): {self.e:.5e} C")
         print(f"Permittivity of Free Space (\u03F50): {self.eps0:.5e} F/m")
-        print(f"Relative Permittivity (\u03F5R): {self.epsR:.5f}")
+        if self.epsR is not None:
+            print(f"Relative Permittivity (\u03F5R): {self.epsR:.5f}")
+        if self.oxide_thickness is not None:
+            print(f"Oxide Thickness: {self.oxide_thickness:.5f} nm")
         print("---------")
         print("\n")
 
@@ -97,7 +115,7 @@ class CoulombDiamond:
         print(f"Source Capacitance: {self.source_capacitance() * 1e18:.5f} aF")
         print(f"Drain Capacitance: {self.drain_capacitance() * 1e18:.5f} aF")
         print(f"Total Capacitance: {self.total_capacitance() * 1e18:.5f} aF")
-        print(f"Dot Size: {self.dot_size() * 1e9:.5f} nm")
+        print(f"Dot Radius: {self.dot_radius() * 1e9:.5f} nm")
         print("--------------")
         print("\n")
 
@@ -115,8 +133,11 @@ class Miner:
     def __init__(self,
                 gate_data: ndarray,
                 ohmic_data: ndarray,
-                current_data: ndarray) -> None:
-            
+                current_data: ndarray,
+                epsR: Optional[float] = None,
+                oxide_thickness: Optional[float] = None) -> None:
+        self.epsR = epsR
+        self.oxide_thickness = oxide_thickness
         self.gate_data = gate_data
         self.ohmic_data = ohmic_data
         self.current_data = current_data
@@ -258,6 +279,8 @@ class Miner:
                     top_vertex=diamond_vertices_voltage[1],
                     right_vertex=diamond_vertices_voltage[2],
                     bottom_vertex=diamond_vertices_voltage[3],
+                    oxide_thickness=self.oxide_thickness,
+                    epsR=self.epsR
                 )
             )
 
@@ -329,7 +352,7 @@ class Miner:
             'gate_capacitance',
             'source_capacitance',
             'drain_capacitance',
-            'dot_size'
+            'dot_radius',
         ]
         methods_print = {
             'lever_arm': lambda mu, std: f"Average Lever Arm (\u03B1) : {mu:.5f} (eV/V) \u00b1 {std:.5f} (eV/V)",
@@ -339,7 +362,7 @@ class Miner:
             'gate_capacitance': lambda mu, std: f"Average Gate Capacitance: {1e18 * mu:.5f} (aF) \u00b1 {1e18 * std:.5f} (aF)",
             'source_capacitance': lambda mu, std: f"Average Source Capacitance: {1e18 * mu:.5f} (aF) \u00b1 {1e18 * std:.5f} (aF)",
             'drain_capacitance': lambda mu, std: f"Average Drain Capacitance: {1e18 * mu:.5f} (aF) \u00b1 {1e18 * std:.5f} (aF)",
-            'dot_size': lambda mu, std: f"Average Dot Size: {1e9 * mu:.5f} (nm) \u00b1 {1e9 * std:.5f} (nm)",
+            'dot_radius': lambda mu, std: f"Average Dot Radius: {1e9 * mu:.5f} (nm) \u00b1 {1e9 * std:.5f} (nm)",
         }
 
 
