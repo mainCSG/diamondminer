@@ -91,7 +91,7 @@ class CoulombDiamond:
         if self.epsR is not None:
             print(f"Relative Permittivity (\u03F5R): {self.epsR:.5f}")
         if self.oxide_thickness is not None:
-            print(f"Oxide Thickness: {self.oxide_thickness:.5f} nm")
+            print(f"Oxide Thickness: {self.oxide_thickness * 1e9:.5f} nm")
         print("---------")
         print("\n")
 
