@@ -101,16 +101,18 @@ class CoulombDiamond:
         print(f"Top Vertex: {self.top_vertex}")
         print(f"Right Vertex: {self.right_vertex}")
         print(f"Bottom Vertex: {self.bottom_vertex}")
-        print(f"Width: {self.width():.5f} V")
-        print(f"Height: {self.height():.5f} V")
+        print(f"Width: {self.width()*1e3:.5f} mV")
+        print(f"Height: {self.height()*1e3:.5f} mV")
         print("---------")
         print("\n")
         
         print("Dot Properties")
         print("--------------")
-        print(f"Lever Arm (\u03B1): {self.lever_arm():.5f} eV/V")
-        print(f"Addition Voltage: {self.addition_voltage():.5f} V")
-        print(f"Charging Voltage: {self.charging_voltage():.5f} V")
+        print(f"Total Lever Arm (\u03B1): {self.lever_arm():.5f} eV/V")
+        print(f"Drain Lever Arm (\u03B2): {self.beta():.5f} eV/V")
+        print(f"Source Lever Arm (\u03B3): {self.gamma():.5f} eV/V")
+        print(f"Addition Voltage: {self.addition_voltage() * 1e3:.5f} mV")
+        print(f"Charging Voltage: {self.charging_voltage()* 1e3:.5f} mV")
         print(f"Gate Capacitance: {self.gate_capacitance() * 1e18:.5f} aF")
         print(f"Source Capacitance: {self.source_capacitance() * 1e18:.5f} aF")
         print(f"Drain Capacitance: {self.drain_capacitance() * 1e18:.5f} aF")
@@ -135,7 +137,10 @@ class Miner:
                 ohmic_data: ndarray,
                 current_data: ndarray,
                 epsR: Optional[float] = None,
-                oxide_thickness: Optional[float] = None) -> None:
+                oxide_thickness: Optional[float] = None,
+                binary_threshold: float = 1.1,
+                blur_sigma: float = 1.0,
+                blur_kernel: tuple = (3,3)) -> None:
         self.epsR = epsR
         self.oxide_thickness = oxide_thickness
         self.gate_data = gate_data
@@ -144,11 +149,19 @@ class Miner:
 
         self.current_data_height, self.current_data_width = self.current_data.shape
         self.image_ratio = self.current_data_height / self.current_data_width
-        self.gate_voltage_per_pixel = (self.gate_data[-1] - self.gate_data[0]) / self.current_data_width
-        self.ohmic_voltage_per_pixel = (self.ohmic_data[-1] - self.ohmic_data[0]) / self.current_data_height
+        self.gate_voltage_per_pixel = np.abs((self.gate_data[-1] - self.gate_data[0]) / self.current_data_width)
+        self.ohmic_voltage_per_pixel = np.abs((self.ohmic_data[-1] - self.ohmic_data[0]) / self.current_data_height)
+
+        self.binary_threshold = binary_threshold
+        self.blur_sigma = blur_sigma
+        self.blur_kernel = blur_kernel
     
     def filter_raw_data(self, 
-                        current_data: ndarray) -> ndarray:
+                        current_data: ndarray,
+                        binary_threshold: float = 1.1,
+                        blur_sigma: float = 1.0,
+                        blur_kernel: tuple = (3,3)) -> ndarray:
+        assert binary_threshold >= 1
 
         filtered_current_data = np.log(
             np.abs(current_data)
@@ -156,7 +169,7 @@ class Miner:
 
         new_data = np.zeros_like(filtered_current_data)
 
-        mask = filtered_current_data < 1.1 * np.nanmax(filtered_current_data)
+        mask = filtered_current_data < binary_threshold * np.nanmax(filtered_current_data)
 
         new_data[mask] = 255
         new_data = new_data.astype(np.uint8)
@@ -164,8 +177,8 @@ class Miner:
         # Apply Gaussian blur to smooth the image and reduce noise
         filtered_data = cv2.GaussianBlur(
             new_data, 
-            (3,3), 
-            1
+            blur_kernel, 
+            blur_sigma
         )
         
         return filtered_data
@@ -173,10 +186,10 @@ class Miner:
     def extract_diamonds(self, debug: bool = False) -> None:
 
         upper_mask = np.zeros_like(self.current_data, dtype=bool)
-        upper_mask[self.current_data_height//2:, :] = True
+        upper_mask[:self.current_data_height//2, :] = True
 
         lower_mask = np.zeros_like(self.current_data, dtype=bool)
-        lower_mask[:self.current_data_height//2, :] = True
+        lower_mask[self.current_data_height//2:, :] = True
 
         masks = {
             'upper': upper_mask,
@@ -190,54 +203,82 @@ class Miner:
 
         if debug:
             plt.title("Filtered Data + Detected Lines")
-            plt.imshow(self.filter_raw_data(self.current_data), cmap='binary', aspect='auto')
-
+            plt.imshow(
+                self.filter_raw_data(
+                    self.current_data,
+                    binary_threshold=self.binary_threshold,
+                    blur_sigma=self.blur_sigma,
+                    blur_kernel=self.blur_kernel
+                ),
+                cmap='binary', 
+                aspect='auto'
+            )
+            plt.show()
 
         for section in ["upper", "lower"]:
             image = self.current_data * masks[section]
-            image_threshold = self.filter_raw_data(image)
+            image_threshold = self.filter_raw_data(
+                image,
+                binary_threshold=self.binary_threshold,
+                blur_sigma=self.blur_sigma,
+                blur_kernel=self.blur_kernel
+            )
             image_edges = self.extract_edges(image_threshold)
+            if debug:
+                plt.title(f"Section [{section}] Edges")
+                plt.imshow(
+                    image_edges,
+                    cmap='binary', 
+                    aspect='auto'
+                )
+                
+
             image_lines = self.extract_lines(image_edges)
-            
             # Iterate over points
             for points in image_lines:
                 # Extracted points nested in the list
                 x1,y1,x2,y2=points[0]
 
-                if x1 != x2:
-                    slope = (y2 - y1) / (x2 - x1)
-                    
-                    if np.abs(slope)/self.image_ratio < 1:
-                        continue
-                    y_middle = self.current_data_height//2
-                    y_upper = self.current_data_height
-                    y_lower = 0
-                    if y2 > y_middle:
-                        px = self.x_intercept(x1, y1, x2, y2, y_upper)
-                        py = y_upper
-                    else:
-                        px = self.x_intercept(x1, y1, x2, y2, y_lower)
-                        py = y_lower
+                if x1 == x2:
+                    continue
 
-                    x_intercept = self.x_intercept(x1, y1, x2, y2, y_middle)
+                slope = (y2 - y1) / (x2 - x1)
+                
+                if np.abs(slope)/self.image_ratio < 0.5:
+                    continue
+                y_middle = self.current_data_height//2
+                y_upper = self.current_data_height
+                y_lower = 0
+                if y2 > y_middle:
+                    px = self.x_intercept(x1, y1, x2, y2, y_upper)
+                    py = y_upper
+                else:
+                    px = self.x_intercept(x1, y1, x2, y2, y_lower)
+                    py = y_lower
+
+                x_intercept = self.x_intercept(x1, y1, x2, y2, y_middle)
+                # if x_intercept < 0 or x_intercept > self.current_data_width:
+                #     continue
+
+                if slope > 0:
+                    line_dict[section]["negative"].append([px, py, x_intercept, y_middle])
+                else:
+                    line_dict[section]["positive"].append([px, py, x_intercept, y_middle])
+
+                if debug:
+                    if section == "upper":
+                        color = 'blue'
+                    else:
+                        color = "red"
 
                     if slope > 0:
-                        line_dict[section]["positive"].append([px, py, x_intercept, y_middle])
+                        color = "dark" + color
                     else:
-                        line_dict[section]["negative"].append([px, py, x_intercept, y_middle])
+                        color = color
 
-                    if debug:
-                        if section == "upper":
-                            color = 'blue'
-                        else:
-                            color = "red"
-
-                        if slope > 0:
-                            color = "dark" + color
-                        else:
-                            color = color
-
-                        plt.plot([px, x_intercept], [py, y_middle], c=color)
+                    plt.plot([px, x_intercept], [py, y_middle], c=color)
+            if debug:
+                plt.show()
 
         upper_pos = sorted(line_dict['upper']['positive'], key = lambda x: x[2])
         upper_neg = sorted(line_dict['upper']['negative'], key = lambda x: x[2])
@@ -249,6 +290,8 @@ class Miner:
 
         diamond_shapes = []  
         for u_p, u_n, l_p, l_n in zip(upper_pos, upper_neg, lower_pos, lower_neg):
+            # [2] is the x-intercept of the line
+
             left_x_int = [max(0, int((u_p[2] + l_n[2]) / 2)), self.current_data_height //2]
             right_x_int = [min(self.current_data_height, int((u_n[2] + l_p[2]) / 2)), self.current_data_height //2]
             upper_vertex = self.get_intersect(u_p, u_n)
@@ -276,9 +319,9 @@ class Miner:
                 CoulombDiamond(
                     name=f"#{number}",
                     left_vertex=diamond_vertices_voltage[0],
-                    top_vertex=diamond_vertices_voltage[1],
+                    top_vertex=diamond_vertices_voltage[3],
                     right_vertex=diamond_vertices_voltage[2],
-                    bottom_vertex=diamond_vertices_voltage[3],
+                    bottom_vertex=diamond_vertices_voltage[1],
                     oxide_thickness=self.oxide_thickness,
                     epsR=self.epsR
                 )
@@ -288,12 +331,33 @@ class Miner:
         return detected_coulomb_diamonds
 
     def estimate_temperatures(
-            self, 
-            diamonds: list[CoulombDiamond], 
-            ohmic_value: float,
-            temperature_guess: float = 1,
-            axes: Optional[plt.Axes] = None) -> list[float]:
+        self, 
+        diamonds: list[CoulombDiamond], 
+        ohmic_value: float,
+        temperature_guess: float = 1) -> list[float]:
+    
+        fig, axes = plt.subplots()
+        # These are in unitless percentages of the figure size. (0,0 is bottom left)
+        left, bottom, width, height = [0.375, 0.22, 0.3, 0.25]
+        ax_inset = fig.add_axes([left, bottom, width, height])
+        axes.imshow(
+            self.current_data, 
+            cmap='binary',
+            aspect='auto',
+            origin='lower',
+            extent=[
+                self.gate_data[0],
+                self.gate_data[-1], 
+                self.ohmic_data[0], 
+                self.ohmic_data[-1]
+            ],
+        )
         
+        axes.set_xlabel("Gate Voltage (V)")
+        axes.set_ylabel("Ohmic Voltage (V)")
+        axes.axhline(ohmic_value, c='k', linestyle="--")
+        axes.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+
         temperatures = []
         for i in range(len(diamonds)-1):
             # Get estimated lever arm from neighbouring diamonds
@@ -321,24 +385,22 @@ class Miner:
             )
 
             # Plot results
-            if axes is not None:
-                Vs = np.linspace(P_data_filtered.min(), P_data_filtered.max(), 100)
-                axes.plot(P_data_filtered, oscillation, 'k.')
-                axes.plot(Vs, self.coulomb_peak(Vs, average_lever_arm, a, b, V0, Te),'k-')
-                axes.set_xlabel(r"Gate Voltage (V)")
-                axes.set_ylabel(r"Current (A)")
+            Vs = np.linspace(P_data_filtered.min(), P_data_filtered.max(), 100)
+            ax_inset.plot(P_data_filtered, oscillation, 'k.')
+            ax_inset.plot(Vs, self.coulomb_peak(Vs, average_lever_arm, a, b, V0, Te),'k-')
+            ax_inset.set_xlabel(r"Gate Voltage (V)")
+            ax_inset.set_ylabel(r"Current (A)")
 
             temperatures.append(Te)
         temperatures = np.array(temperatures)
         T_avg = np.average(np.abs(temperatures))
         T_stddev = np.std(temperatures)
-        if axes is not None:
-            axes.annotate(
-                rf'$T_e$ = ${round(T_avg,3)}$ K $\pm\ {round(T_stddev/np.sqrt(len(temperatures)), 3)}$ K',
-                (0.35,1.05),
-                xycoords='axes fraction',
-                size=10
-                )
+    
+        axes.set_title(
+            f'$T_e$ = ${round(T_avg,3)}$ K $\pm\ {round(T_stddev/np.sqrt(len(temperatures)), 3)}$ K'
+        )
+                
+        plt.show()
         return temperatures
 
     def coulomb_peak(self, V, alpha, a, b, V0, Te):
@@ -395,19 +457,31 @@ class Miner:
 
         return edges
 
-    def extract_lines(self, edges: ndarray) -> list:
+    def extract_lines(self, 
+                      edges: ndarray,
+                      threshold: int = 10,
+                      maxLineGap: int = 250,
+                      minLineLength: int = None,
+                      distanceThreshold: int = None,
+                      angleThreshold: float = None
+                      ) -> list:
 
+        if minLineLength is None:
+            minLineLength = self.current_data_height // 10
+        if distanceThreshold is None:
+            distanceThreshold = self.current_data_width//10
+        if angleThreshold is None:
+            angleThreshold = 0.25
         lines = cv2.HoughLinesP(
             edges, # Input edge image
             1, # Distance resolution in pixels
             np.pi/180, # Angle resolution in radians
-            threshold=15, # Min number of votes for valid line
-            minLineLength=10, # Min allowed length of line
-            maxLineGap=10 # Max allowed gap between line for joining them
+            threshold=threshold, # Min number of votes for valid line
+            minLineLength=minLineLength, # Min allowed length of line
+            maxLineGap=maxLineGap # Max allowed gap between line for joining them
             )
-
         # Filter out duplicate lines
-        lines = self.filter_duplicate_lines(lines, distance_threshold=self.current_data_width//10, angle_threshold=0.5)
+        lines = self.filter_duplicate_lines(lines, distance_threshold=distanceThreshold, angle_threshold=angleThreshold)
 
         return lines
 
@@ -419,6 +493,8 @@ class Miner:
         for line in lines:
             x1, y1, x2, y2 = line[0]
             keep_line = True
+            if y2 == y1:
+                continue
             for other_line in filtered_lines:
                 ox1, oy1, ox2, oy2 = other_line[0]
                 # Calculate the slopes of the two lines
@@ -469,7 +545,7 @@ class Miner:
         # Calculate the slopes of the two lines
         slope1 = np.arctan2((y2 - y1), (x2 - x1))
         slope2 = np.arctan2((oy2 - oy1), (ox2 - ox1))
-        angle_difference = np.abs(slope1 - slope2)%2*np.pi
+        angle_difference = np.abs(slope1 - slope2)%(2*np.pi)
 
         # Check if both distance and angle difference are below the thresholds
         return distance_difference < distance_threshold and angle_difference < angle_threshold
@@ -486,3 +562,29 @@ class Miner:
         x_i = (y_i - y1) / m + x1
         
         return int(x_i)
+    
+    def plot_diamonds(self):
+
+        fig, ax = plt.subplots()
+        ax.imshow(
+            self.current_data, 
+            cmap='binary',
+            aspect='auto',
+            origin='lower',
+            extent=[
+                self.gate_data[0],
+                self.gate_data[-1], 
+                self.ohmic_data[0], 
+                self.ohmic_data[-1]
+            ],
+        )
+        ax.set_title("Coulomb Diamonds")
+        ax.set_xlabel("Gate Voltage (V)")
+        ax.set_ylabel("Ohmic Voltage (V)")
+        ax.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+        for diamond in self.diamonds:
+            diamond.print_summary()
+            diamond.plot(ax)
+
+        plt.tight_layout()
+        plt.show()

@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="DiamondMiner",
-    version="0.0.2",
+    version="0.0.3",
     url="https://github.com/mainCSG/diamondminer",
     packages=setuptools.find_packages(),
     install_requires=[
