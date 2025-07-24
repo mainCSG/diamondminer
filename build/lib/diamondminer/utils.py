@@ -105,12 +105,6 @@ def extract_bias_point(
         plt.xlabel("LB (V)")
         plt.ylabel("RB (V)")
        
-    if lines is None:
-        if debug:
-            print("No lines detected by HoughLinesP.")
-        return []
-
-
     for line in lines:
         # Extracted points nested in the list
         x1,y1,x2,y2 = line[0]
