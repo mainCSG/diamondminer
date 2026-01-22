@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from dataclasses import dataclass
 import scipy as sp 
-from typing import Optional
+from typing import Optional, Dict, List, Tuple
 
 @dataclass
 class CoulombDiamond:
@@ -161,6 +161,7 @@ class Miner:
                         binary_threshold: float = 1.1,
                         blur_sigma: float = 1.0,
                         blur_kernel: tuple = (3,3)) -> ndarray:
+        
         assert binary_threshold >= 1
 
         filtered_current_data = np.log(
@@ -588,3 +589,475 @@ class Miner:
 
         plt.tight_layout()
         plt.show()
+
+    def preprocess_data(self,
+                        current_data: ndarray,
+                        binary_threshold: float = 0.8,
+                        blur_sigma: float = 1.0,
+                        blur_kernel: tuple = (3,3)) -> ndarray:
+
+        pass
+
+    def detect_diamond_edges(self,
+                             processed_data: ndarray,
+                             threshold: float = 1.0,
+                             ):
+
+        pass
+
+    def estimate_diamond_slopes(self,
+                                ):
+
+        pass
+
+    def estimate_line_intercepts(self,
+                                 ):
+        
+        pass
+
+    def cost_function(self,
+                      ):
+        
+        pass
+
+    def minimize_cost(self,
+                      ):
+        
+        pass
+
+    def plot_diamonds(self,
+                      ):
+        
+        pass
+
+    def acquire_statistics(self,
+                           ):
+
+        pass
+
+    
+
+@dataclass
+class ThresholdAnalysisResult:
+    """Store results for a single threshold value"""
+    threshold: float
+    num_diamonds: int
+    diamonds: list
+    avg_addition_voltage: Optional[float] = None
+    std_addition_voltage: Optional[float] = None
+    avg_lever_arm: Optional[float] = None
+    std_lever_arm: Optional[float] = None
+    avg_charging_voltage: Optional[float] = None
+    std_charging_voltage: Optional[float] = None
+
+
+def analyze_threshold_sensitivity(
+    miner,
+    threshold_range: np.ndarray = None,
+    debug: bool = False,
+    plot_results: bool = True,
+    continue_on_error: bool = True
+) -> Dict[float, ThresholdAnalysisResult]:
+    """
+    Analyze how binary threshold affects Coulomb diamond detection.
+    
+    Parameters:
+    -----------
+    miner : Miner
+        The Miner object with data already loaded
+    threshold_range : np.ndarray, optional
+        Array of threshold values to test (default: np.linspace(1.05, 1.5, 10))
+    debug : bool
+        Show detailed debug plots for each threshold
+    plot_results : bool
+        Show summary plots at the end
+    continue_on_error : bool
+        If True, continue testing other thresholds when one fails
+        
+    Returns:
+    --------
+    results : Dict[float, ThresholdAnalysisResult]
+        Dictionary mapping threshold values to analysis results
+    """
+    
+    if threshold_range is None:
+        threshold_range = np.linspace(1.05, 1.5, 10)
+    
+    # Store original threshold
+    original_threshold = miner.binary_threshold
+    
+    results = {}
+    successful_count = 0
+    failed_count = 0
+    
+    print(f"Testing {len(threshold_range)} threshold values...")
+    print("=" * 60)
+    
+    for thresh in threshold_range:
+        print(f"\nThreshold: {thresh:.3f}")
+        print("-" * 40)
+        
+        # Update threshold
+        miner.binary_threshold = thresh
+        
+        try:
+            # Extract diamonds with current threshold
+            diamonds = miner.extract_diamonds(debug=debug)
+            
+            # Compute statistics if diamonds were found
+            result = ThresholdAnalysisResult(
+                threshold=thresh,
+                num_diamonds=len(diamonds),
+                diamonds=diamonds
+            )
+            
+            if len(diamonds) > 0:
+                addition_voltages = [d.addition_voltage() for d in diamonds]
+                lever_arms = [d.lever_arm() for d in diamonds]
+                charging_voltages = [d.charging_voltage() for d in diamonds]
+                
+                result.avg_addition_voltage = np.mean(addition_voltages)
+                result.std_addition_voltage = np.std(addition_voltages)
+                result.avg_lever_arm = np.mean(lever_arms)
+                result.std_lever_arm = np.std(lever_arms)
+                result.avg_charging_voltage = np.mean(charging_voltages)
+                result.std_charging_voltage = np.std(charging_voltages)
+                
+                print(f"  ✓ Diamonds detected: {len(diamonds)}")
+                print(f"  Avg addition voltage: {result.avg_addition_voltage*1e3:.3f} ± {result.std_addition_voltage*1e3:.3f} mV")
+                print(f"  Avg lever arm: {result.avg_lever_arm:.5f} ± {result.std_lever_arm:.5f} eV/V")
+            else:
+                print(f"  ✓ No diamonds detected (valid result)")
+                
+            results[thresh] = result
+            successful_count += 1
+            
+        except AssertionError as e:
+            error_msg = str(e)
+            print(f"  ✗ Detection failed: {error_msg}")
+            results[thresh] = ThresholdAnalysisResult(
+                threshold=thresh,
+                num_diamonds=-1,  # Use -1 to indicate failure vs 0 for no diamonds
+                diamonds=[]
+            )
+            failed_count += 1
+            
+            if not continue_on_error:
+                miner.binary_threshold = original_threshold
+                raise
+                
+        except Exception as e:
+            print(f"  ✗ Unexpected error: {str(e)}")
+            results[thresh] = ThresholdAnalysisResult(
+                threshold=thresh,
+                num_diamonds=-1,
+                diamonds=[]
+            )
+            failed_count += 1
+            
+            if not continue_on_error:
+                miner.binary_threshold = original_threshold
+                raise
+    
+    # Restore original threshold
+    miner.binary_threshold = original_threshold
+    
+    print("\n" + "=" * 60)
+    print("Analysis complete!")
+    print(f"Successful: {successful_count}/{len(threshold_range)}")
+    print(f"Failed: {failed_count}/{len(threshold_range)}")
+    
+    if plot_results:
+        plot_threshold_analysis(results, threshold_range, miner)
+    
+    return results
+
+
+def plot_threshold_analysis(
+    results: Dict[float, ThresholdAnalysisResult],
+    threshold_range: np.ndarray,
+    miner
+):
+    """Create comprehensive visualization of threshold sensitivity analysis"""
+    
+    fig = plt.figure(figsize=(16, 10))
+    gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
+    
+    # Extract data for plotting (exclude failed runs with num_diamonds = -1)
+    thresholds = []
+    num_diamonds = []
+    failed_thresholds = []
+    avg_addition = []
+    std_addition = []
+    avg_lever = []
+    std_lever = []
+    avg_charging = []
+    std_charging = []
+    
+    for thresh, result in sorted(results.items()):
+        if result.num_diamonds == -1:
+            # Mark failed attempts
+            failed_thresholds.append(thresh)
+            continue
+            
+        thresholds.append(thresh)
+        num_diamonds.append(result.num_diamonds)
+        avg_addition.append(result.avg_addition_voltage if result.avg_addition_voltage else np.nan)
+        std_addition.append(result.std_addition_voltage if result.std_addition_voltage else np.nan)
+        avg_lever.append(result.avg_lever_arm if result.avg_lever_arm else np.nan)
+        std_lever.append(result.std_lever_arm if result.std_lever_arm else np.nan)
+        avg_charging.append(result.avg_charging_voltage if result.avg_charging_voltage else np.nan)
+        std_charging.append(result.std_charging_voltage if result.std_charging_voltage else np.nan)
+    
+    if len(thresholds) == 0:
+        print("No successful threshold values to plot!")
+        return
+    
+    thresholds = np.array(thresholds)
+    num_diamonds = np.array(num_diamonds)
+    avg_addition = np.array(avg_addition) * 1e3  # Convert to mV
+    std_addition = np.array(std_addition) * 1e3
+    avg_charging = np.array(avg_charging) * 1e3  # Convert to mV
+    std_charging = np.array(std_charging) * 1e3
+    avg_lever = np.array(avg_lever)
+    std_lever = np.array(std_lever)
+    
+    # Plot 1: Number of diamonds detected
+    ax1 = fig.add_subplot(gs[0, :])
+    ax1.plot(thresholds, num_diamonds, 'o-', linewidth=2, markersize=8, color='tab:blue')
+    ax1.fill_between(thresholds, 0, num_diamonds, alpha=0.3)
+    
+    # Mark failed thresholds
+    if failed_thresholds:
+        y_max = max(num_diamonds) if len(num_diamonds) > 0 else 1
+        for ft in failed_thresholds:
+            ax1.axvspan(ft-0.01, ft+0.01, color='red', alpha=0.3, label='Failed' if ft == failed_thresholds[0] else '')
+    
+    ax1.axvline(miner.binary_threshold, color='red', linestyle='--', 
+                label=f'Current threshold ({miner.binary_threshold:.3f})', linewidth=2)
+    ax1.set_xlabel('Binary Threshold', fontsize=12)
+    ax1.set_ylabel('Number of Diamonds Detected', fontsize=12)
+    ax1.set_title('Diamond Detection vs Binary Threshold', fontsize=14, fontweight='bold')
+    ax1.grid(alpha=0.3)
+    ax1.legend(fontsize=10)
+    
+    # Plot 2: Addition voltage
+    ax2 = fig.add_subplot(gs[1, 0])
+    valid_mask = ~np.isnan(avg_addition)
+    if np.any(valid_mask):
+        ax2.errorbar(thresholds[valid_mask], avg_addition[valid_mask], 
+                     yerr=std_addition[valid_mask], fmt='o-', linewidth=2, 
+                     markersize=6, capsize=4, color='tab:green')
+        ax2.axvline(miner.binary_threshold, color='red', linestyle='--', linewidth=2)
+        ax2.set_xlabel('Binary Threshold', fontsize=11)
+        ax2.set_ylabel('Avg Addition Voltage (mV)', fontsize=11)
+        ax2.set_title('Addition Voltage Stability', fontsize=12, fontweight='bold')
+        ax2.grid(alpha=0.3)
+    else:
+        ax2.text(0.5, 0.5, 'No valid data', ha='center', va='center', transform=ax2.transAxes)
+        ax2.set_title('Addition Voltage Stability', fontsize=12, fontweight='bold')
+    
+    # Plot 3: Lever arm
+    ax3 = fig.add_subplot(gs[1, 1])
+    valid_mask = ~np.isnan(avg_lever)
+    if np.any(valid_mask):
+        ax3.errorbar(thresholds[valid_mask], avg_lever[valid_mask], 
+                     yerr=std_lever[valid_mask], fmt='o-', linewidth=2, 
+                     markersize=6, capsize=4, color='tab:orange')
+        ax3.axvline(miner.binary_threshold, color='red', linestyle='--', linewidth=2)
+        ax3.set_xlabel('Binary Threshold', fontsize=11)
+        ax3.set_ylabel('Avg Lever Arm (eV/V)', fontsize=11)
+        ax3.set_title('Lever Arm Stability', fontsize=12, fontweight='bold')
+        ax3.grid(alpha=0.3)
+    else:
+        ax3.text(0.5, 0.5, 'No valid data', ha='center', va='center', transform=ax3.transAxes)
+        ax3.set_title('Lever Arm Stability', fontsize=12, fontweight='bold')
+    
+    # Plot 4: Charging voltage
+    ax4 = fig.add_subplot(gs[1, 2])
+    valid_mask = ~np.isnan(avg_charging)
+    if np.any(valid_mask):
+        ax4.errorbar(thresholds[valid_mask], avg_charging[valid_mask], 
+                     yerr=std_charging[valid_mask], fmt='o-', linewidth=2, 
+                     markersize=6, capsize=4, color='tab:purple')
+        ax4.axvline(miner.binary_threshold, color='red', linestyle='--', linewidth=2)
+        ax4.set_xlabel('Binary Threshold', fontsize=11)
+        ax4.set_ylabel('Avg Charging Voltage (mV)', fontsize=11)
+        ax4.set_title('Charging Voltage Stability', fontsize=12, fontweight='bold')
+        ax4.grid(alpha=0.3)
+    else:
+        ax4.text(0.5, 0.5, 'No valid data', ha='center', va='center', transform=ax4.transAxes)
+        ax4.set_title('Charging Voltage Stability', fontsize=12, fontweight='bold')
+    
+    # Plot 5: Coefficient of variation (CV) for addition voltage
+    ax5 = fig.add_subplot(gs[2, 0])
+    valid_mask = (~np.isnan(avg_addition)) & (avg_addition != 0)
+    if np.any(valid_mask):
+        cv_addition = (std_addition[valid_mask] / np.abs(avg_addition[valid_mask])) * 100
+        ax5.plot(thresholds[valid_mask], cv_addition, 'o-', linewidth=2, 
+                markersize=6, color='tab:red')
+        ax5.axvline(miner.binary_threshold, color='red', linestyle='--', linewidth=2)
+        ax5.set_xlabel('Binary Threshold', fontsize=11)
+        ax5.set_ylabel('CV (%)', fontsize=11)
+        ax5.set_title('Addition Voltage Variability', fontsize=12, fontweight='bold')
+        ax5.grid(alpha=0.3)
+    else:
+        ax5.text(0.5, 0.5, 'No valid data', ha='center', va='center', transform=ax5.transAxes)
+        ax5.set_title('Addition Voltage Variability', fontsize=12, fontweight='bold')
+    
+    # Plot 6: CV for lever arm
+    ax6 = fig.add_subplot(gs[2, 1])
+    valid_mask = (~np.isnan(avg_lever)) & (avg_lever != 0)
+    if np.any(valid_mask):
+        cv_lever = (std_lever[valid_mask] / avg_lever[valid_mask]) * 100
+        ax6.plot(thresholds[valid_mask], cv_lever, 'o-', linewidth=2, 
+                markersize=6, color='tab:brown')
+        ax6.axvline(miner.binary_threshold, color='red', linestyle='--', linewidth=2)
+        ax6.set_xlabel('Binary Threshold', fontsize=11)
+        ax6.set_ylabel('CV (%)', fontsize=11)
+        ax6.set_title('Lever Arm Variability', fontsize=12, fontweight='bold')
+        ax6.grid(alpha=0.3)
+    else:
+        ax6.text(0.5, 0.5, 'No valid data', ha='center', va='center', transform=ax6.transAxes)
+        ax6.set_title('Lever Arm Variability', fontsize=12, fontweight='bold')
+    
+    # Plot 7: Combined stability metric
+    ax7 = fig.add_subplot(gs[2, 2])
+    valid_for_stability = (~np.isnan(avg_addition)) & (~np.isnan(avg_lever)) & (num_diamonds > 0)
+    if np.any(valid_for_stability):
+        # Get CV values for valid indices
+        cv_add_vals = (std_addition / np.abs(avg_addition)) * 100
+        cv_lever_vals = (std_lever / avg_lever) * 100
+        
+        # Only use indices that have valid data for stability calculation
+        valid_indices = np.where(valid_for_stability)[0]
+        
+        norm_diamonds = np.zeros(len(thresholds))
+        norm_diamonds[valid_indices] = num_diamonds[valid_indices] / num_diamonds[valid_indices].max() if num_diamonds[valid_indices].max() > 0 else 0
+        
+        # Normalize CVs (lower CV = better, so we invert)
+        max_cv_add = cv_add_vals[valid_indices].max() if len(valid_indices) > 0 and cv_add_vals[valid_indices].max() > 0 else 1
+        max_cv_lever = cv_lever_vals[valid_indices].max() if len(valid_indices) > 0 and cv_lever_vals[valid_indices].max() > 0 else 1
+        
+        norm_cv_add = np.zeros(len(thresholds))
+        norm_cv_lever = np.zeros(len(thresholds))
+        norm_cv_add[valid_indices] = 1 - (cv_add_vals[valid_indices] / max_cv_add)
+        norm_cv_lever[valid_indices] = 1 - (cv_lever_vals[valid_indices] / max_cv_lever)
+        
+        stability_score = (norm_diamonds + norm_cv_add + norm_cv_lever) / 3 * 100
+        
+        ax7.plot(thresholds[valid_for_stability], stability_score[valid_for_stability], 
+                'o-', linewidth=2, markersize=6, color='tab:cyan')
+        ax7.axvline(miner.binary_threshold, color='red', linestyle='--', linewidth=2)
+        ax7.fill_between(thresholds[valid_for_stability], 0, 
+                        stability_score[valid_for_stability], alpha=0.3)
+        ax7.set_xlabel('Binary Threshold', fontsize=11)
+        ax7.set_ylabel('Stability Score', fontsize=11)
+        ax7.set_title('Overall Stability Metric', fontsize=12, fontweight='bold')
+        ax7.grid(alpha=0.3)
+        ax7.set_ylim([0, 105])
+    else:
+        ax7.text(0.5, 0.5, 'No valid data', ha='center', va='center', transform=ax7.transAxes)
+        ax7.set_title('Overall Stability Metric', fontsize=12, fontweight='bold')
+    
+    plt.suptitle('Binary Threshold Sensitivity Analysis', 
+                 fontsize=16, fontweight='bold', y=0.995)
+    
+    plt.show()
+    
+    # Print summary statistics
+    print("\n" + "="*60)
+    print("SUMMARY STATISTICS")
+    print("="*60)
+    
+    if np.any(~np.isnan(avg_addition)):
+        optimal_idx = np.nanargmin(std_addition)
+        print(f"\nMost stable addition voltage at threshold: {thresholds[optimal_idx]:.3f}")
+        print(f"  Value: {avg_addition[optimal_idx]:.3f} ± {std_addition[optimal_idx]:.3f} mV")
+    
+    if np.any(~np.isnan(avg_lever)):
+        optimal_idx = np.nanargmin(std_lever)
+        print(f"\nMost stable lever arm at threshold: {thresholds[optimal_idx]:.3f}")
+        print(f"  Value: {avg_lever[optimal_idx]:.5f} ± {std_lever[optimal_idx]:.5f} eV/V")
+    
+    if len(num_diamonds) > 0:
+        max_detection_idx = np.argmax(num_diamonds)
+        print(f"\nMaximum diamonds detected at threshold: {thresholds[max_detection_idx]:.3f}")
+        print(f"  Number: {num_diamonds[max_detection_idx]}")
+    
+    current_idx = np.argmin(np.abs(thresholds - miner.binary_threshold)) if len(thresholds) > 0 else None
+    if current_idx is not None:
+        print(f"\nCurrent threshold: {miner.binary_threshold:.3f}")
+        print(f"  Diamonds detected: {num_diamonds[current_idx]}")
+    
+    if failed_thresholds:
+        print(f"\nFailed thresholds: {len(failed_thresholds)}")
+        print(f"  Values: {[f'{t:.3f}' for t in failed_thresholds]}")
+
+
+def compare_threshold_diamonds(
+    miner,
+    threshold1: float,
+    threshold2: float,
+    plot: bool = True
+) -> Tuple[list, list]:
+    """
+    Compare diamond detection between two specific threshold values.
+    
+    Parameters:
+    -----------
+    miner : Miner
+        The Miner object
+    threshold1 : float
+        First threshold value
+    threshold2 : float
+        Second threshold value
+    plot : bool
+        Whether to plot side-by-side comparison
+        
+    Returns:
+    --------
+    diamonds1, diamonds2 : tuple of lists
+        Diamond lists for each threshold
+    """
+    
+    original_threshold = miner.binary_threshold
+    
+    # Extract diamonds with first threshold
+    miner.binary_threshold = threshold1
+    diamonds1 = miner.extract_diamonds(debug=False)
+    
+    # Extract diamonds with second threshold
+    miner.binary_threshold = threshold2
+    diamonds2 = miner.extract_diamonds(debug=False)
+    
+    # Restore original
+    miner.binary_threshold = original_threshold
+    
+    if plot:
+        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+        
+        for ax, diamonds, thresh in zip(axes, [diamonds1, diamonds2], [threshold1, threshold2]):
+            ax.imshow(
+                miner.current_data,
+                cmap='binary',
+                aspect='auto',
+                origin='lower',
+                extent=[
+                    miner.gate_data[0],
+                    miner.gate_data[-1],
+                    miner.ohmic_data[0],
+                    miner.ohmic_data[-1]
+                ]
+            )
+            ax.set_title(f'Threshold = {thresh:.3f} ({len(diamonds)} diamonds)', fontsize=14)
+            ax.set_xlabel('Gate Voltage (V)', fontsize=12)
+            ax.set_ylabel('Ohmic Voltage (V)', fontsize=12)
+            
+            for diamond in diamonds:
+                diamond.plot(ax)
+        
+        plt.tight_layout()
+        plt.show()
+    
+    return diamonds1, diamonds2
